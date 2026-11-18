@@ -1,0 +1,84 @@
+name: Deploy QR Redirects
+
+on:
+  push:
+    branches: ["main"] # Pastikan ini sesuai dengan branch utama Anda (main/master)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate Redirect HTML Files
+        run: |
+          node -e "
+          const fs = require('fs');
+          const path = require('path');
+          const links = JSON.parse(fs.readFileSync('links.json', 'utf8'));
+          const outputDir = './_site';
+          
+          // 1. Bersihkan dan buat direktori output
+          fs.rmSync(outputDir, { recursive: true, force: true });
+          fs.mkdirSync(outputDir, { recursive: true });
+
+          // 2. Buat file index.html di ROOT (WAJIB untuk GitHub Pages)
+          const rootHtml = \`<!DOCTYPE html>
+          <html>
+          <head><meta charset=\\\"utf-8\\\"><title>QR Links</title></head>
+          <body><h1>QR Redirect Service</h1><p>Total links: \${Object.keys(links).length}</p></body>
+          </html>\`;
+          fs.writeFileSync(path.join(outputDir, 'index.html'), rootHtml);
+
+          // 3. Buat file redirect untuk setiap slug di dalam folder /r/
+          for (const [slug, data] of Object.entries(links)) {
+            const targetUrl = data.target_url;
+            if (!targetUrl) continue;
+            
+            // Path yang benar: _site/r/{slug}/index.html
+            const slugDir = path.join(outputDir, 'r', slug);
+            fs.mkdirSync(slugDir, { recursive: true });
+            
+            const html = \`<!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset=\\\"utf-8\\\">
+            <meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\${targetUrl}\\\">
+            <link rel=\\\"canonical\\\" href=\\\"\${targetUrl}\\\">
+            <script>location.replace(\\\"\${targetUrl}\\\");</script>
+          </head>
+          <body>
+            <p>Mengalihkan ke <a href=\\\"\${targetUrl}\\\">\${targetUrl}</a>...</p>
+          </body>
+          </html>\`;
+            fs.writeFileSync(path.join(slugDir, 'index.html'), html);
+          }
+          console.log('Build selesai. Root index.html dan ' + Object.keys(links).length + ' file redirect dibuat.');
+          "
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
