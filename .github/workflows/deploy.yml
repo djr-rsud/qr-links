@@ -2,7 +2,7 @@ name: Deploy QR Redirects
 
 on:
   push:
-    branches: ["main"] # Pastikan ini sesuai dengan branch utama Anda (main/master)
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -27,49 +27,70 @@ jobs:
 
       - name: Generate Redirect HTML Files
         run: |
-          node -e "
+          node << 'EOF'
           const fs = require('fs');
           const path = require('path');
+
+          // 1. Baca links.json
           const links = JSON.parse(fs.readFileSync('links.json', 'utf8'));
+          console.log('Jumlah link:', Object.keys(links).length);
+          console.log('Data:', JSON.stringify(links, null, 2));
+
+          // 2. Siapkan folder output
           const outputDir = './_site';
-          
-          // 1. Bersihkan dan buat direktori output
           fs.rmSync(outputDir, { recursive: true, force: true });
           fs.mkdirSync(outputDir, { recursive: true });
 
-          // 2. Buat file index.html di ROOT (WAJIB untuk GitHub Pages)
-          const rootHtml = \`<!DOCTYPE html>
+          // 3. Buat index.html root (WAJIB untuk GitHub Pages)
+          const rootHtml = `<!DOCTYPE html>
           <html>
-          <head><meta charset=\\\"utf-8\\\"><title>QR Links</title></head>
-          <body><h1>QR Redirect Service</h1><p>Total links: \${Object.keys(links).length}</p></body>
-          </html>\`;
+          <head><meta charset="utf-8"><title>QR Links</title></head>
+          <body style="font-family:sans-serif;padding:2rem;">
+            <h1>QR Redirect Service</h1>
+            <p>Total links: ${Object.keys(links).length}</p>
+            <ul>
+              ${Object.entries(links).map(([slug, item]) =>
+                `<li><strong>${slug}</strong> → <a href="${item.target_url}">${item.target_url}</a></li>`
+              ).join('')}
+            </ul>
+          </body>
+          </html>`;
           fs.writeFileSync(path.join(outputDir, 'index.html'), rootHtml);
 
-          // 3. Buat file redirect untuk setiap slug di dalam folder /r/
+          // 4. Generate redirect per slug di /r/{slug}/index.html
           for (const [slug, data] of Object.entries(links)) {
-            const targetUrl = data.target_url;
-            if (!targetUrl) continue;
-            
-            // Path yang benar: _site/r/{slug}/index.html
+            // PERBAIKAN UTAMA: ambil dari data.target_url, BUKAN links.target_url
+            const targetUrl = data && data.target_url;
+
+            if (!targetUrl) {
+              console.log(`SKIP ${slug}: target_url kosong`);
+              continue;
+            }
+
+            console.log(`GENERATE ${slug} → ${targetUrl}`);
+
             const slugDir = path.join(outputDir, 'r', slug);
             fs.mkdirSync(slugDir, { recursive: true });
-            
-            const html = \`<!DOCTYPE html>
+
+            const html = `<!DOCTYPE html>
           <html>
           <head>
-            <meta charset=\\\"utf-8\\\">
-            <meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\${targetUrl}\\\">
-            <link rel=\\\"canonical\\\" href=\\\"\${targetUrl}\\\">
-            <script>location.replace(\\\"\${targetUrl}\\\");</script>
+            <meta charset="utf-8">
+            <title>Redirecting...</title>
+            <meta http-equiv="refresh" content="0; url=${targetUrl}">
+            <link rel="canonical" href="${targetUrl}">
+            <script>location.replace("${targetUrl}");</script>
           </head>
-          <body>
-            <p>Mengalihkan ke <a href=\\\"\${targetUrl}\\\">\${targetUrl}</a>...</p>
+          <body style="font-family:sans-serif;padding:2rem;">
+            <p>Mengalihkan ke <a href="${targetUrl}">${targetUrl}</a>...</p>
           </body>
-          </html>\`;
+          </html>`;
+
             fs.writeFileSync(path.join(slugDir, 'index.html'), html);
           }
-          console.log('Build selesai. Root index.html dan ' + Object.keys(links).length + ' file redirect dibuat.');
-          "
+
+          console.log('SELESAI. Cek folder _site/r/');
+          EOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
